@@ -454,11 +454,54 @@ function tone(midi, t0, dur, gainV, type) {
   osc.connect(f); f.connect(g); g.connect(ac.destination);
   osc.start(t0); osc.stop(t0 + dur + 0.05);
 }
-function playChordPad(t0, dur) {
-  const rootMidi = 36 + state.root;
-  tone(rootMidi, t0, dur, 0.10, 'triangle');
-  state.quality.tones.forEach(iv => tone(48 + state.root + iv, t0, dur, 0.06, 'sawtooth'));
+
+/* Sustained pad: pairs of slightly detuned triangle/sine voices through a
+   dark lowpass, slow attack and release. startPad returns a handle whose
+   stop() fades out and disconnects everything. */
+function startPad(t0) {
+  const ac = ctx();
+  const master = ac.createGain(), f = ac.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 900; f.Q.value = 0.3;
+  master.gain.setValueAtTime(0, t0);
+  master.gain.linearRampToValueAtTime(1, t0 + 0.5);
+  f.connect(master); master.connect(ac.destination);
+  const oscs = [];
+  const voice = (midi, gainV) => {
+    for (const [type, detune] of [['triangle', -4], ['sine', 4]]) {
+      const osc = ac.createOscillator(), g = ac.createGain();
+      osc.type = type; osc.frequency.value = mtof(midi); osc.detune.value = detune;
+      g.gain.value = gainV;
+      osc.connect(g); g.connect(f);
+      osc.start(t0); oscs.push(osc);
+    }
+  };
+  voice(36 + state.root, 0.08);
+  state.quality.tones.forEach(iv => voice(48 + state.root + iv, 0.05));
+  return {
+    stop(at) {
+      const t = Math.max(at ?? ac.currentTime, t0 + 0.1);
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(master.gain.value, t);
+      master.gain.linearRampToValueAtTime(0.0001, t + 0.6);
+      oscs.forEach(o => o.stop(t + 0.7));
+    }
+  };
 }
+
+let padHandle = null;
+function padOn() { return padHandle !== null; }
+function setPad(on) {
+  const ac = ctx();
+  if (ac.state === 'suspended') ac.resume();
+  if (padHandle) { padHandle.stop(); padHandle = null; }
+  if (on) padHandle = startPad(ac.currentTime + 0.05);
+  const b = $('playchord');
+  b.textContent = padOn() ? '■ Stop chord' : '▶ Hear chord';
+  b.setAttribute('aria-pressed', padOn());
+}
+/* Restart the sustained pad on the new chord if it's currently sounding. */
+function retunePad() { if (padOn()) setPad(true); }
+
 function playRow(row) {
   const ac = ctx();
   if (ac.state === 'suspended') ac.resume();
@@ -467,7 +510,10 @@ function playRow(row) {
   const start = (r >= 8 ? 48 : 60) + r;
   const notes = row.primary.scale.iv.map(i => start + i).concat(start + 12);
   const step = 0.26;
-  playChordPad(t0, notes.length * step + 0.8);
+  if (!padOn()) {
+    const pad = startPad(t0);
+    pad.stop(t0 + notes.length * step + 0.8);
+  }
   notes.forEach((m, i) => tone(m, t0 + 0.25 + i * step, 0.24, 0.13, 'sine'));
 }
 
@@ -478,21 +524,18 @@ function refresh(recompute) {
 }
 $('roots').addEventListener('click', e => {
   const b = e.target.closest('button[data-r]'); if (!b) return;
-  state.root = +b.dataset.r; state.selectedKey = null; refresh(true);
+  state.root = +b.dataset.r; state.selectedKey = null; refresh(true); retunePad();
 });
 $('quals').addEventListener('click', e => {
   const b = e.target.closest('button[data-q]'); if (!b) return;
-  state.quality = QUALITIES.find(q => q.id === b.dataset.q); state.selectedKey = null; refresh(true);
+  state.quality = QUALITIES.find(q => q.id === b.dataset.q); state.selectedKey = null; refresh(true); retunePad();
 });
 $('sortin').addEventListener('click', () => { state.sortOutside = false; $('sortin').classList.add('on'); $('sortout').classList.remove('on'); renderRows(); });
 $('sortout').addEventListener('click', () => { state.sortOutside = true; $('sortout').classList.add('on'); $('sortin').classList.remove('on'); renderRows(); });
 $('famfilter').addEventListener('change', e => { state.family = e.target.value; renderRows(); });
 $('fullcov').addEventListener('change', e => { state.fullCov = e.target.checked; renderRows(); });
 $('search').addEventListener('input', e => { state.search = e.target.value; renderRows(); });
-$('playchord').addEventListener('click', () => {
-  const ac = ctx(); if (ac.state === 'suspended') ac.resume();
-  playChordPad(ac.currentTime + 0.05, 2.0);
-});
+$('playchord').addEventListener('click', () => setPad(!padOn()));
 $('rows').addEventListener('click', e => {
   const p = e.target.closest('button[data-play]');
   if (p) {
