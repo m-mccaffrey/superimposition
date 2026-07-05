@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Superimposition — scale choices over any chord</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-3: #898781;
+    --hairline: #e1e0d9;
+    --ring: rgba(11,11,11,0.10);
+    --accent: #2a78d6;
+    --cat-tone: #2a78d6;    /* chord tone */
+    --cat-tension: #1baf7a; /* available tension */
+    --cat-color: #4a3aa7;   /* color / altered tension */
+    --cat-avoid: #eda100;   /* avoid note */
+    --cat-out: #e34948;     /* clash */
+    --wash-tone: rgba(42,120,214,0.16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --ink-1: #ffffff;
+      --ink-2: #c3c2b7;
+      --ink-3: #898781;
+      --hairline: #2c2c2a;
+      --ring: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+      --cat-tone: #3987e5;
+      --cat-tension: #199e70;
+      --cat-color: #9085e9;
+      --cat-avoid: #c98500;
+      --cat-out: #e66767;
+      --wash-tone: rgba(57,135,229,0.28);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px; line-height: 1.45;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 80px; }
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p.sub { margin: 0 0 20px; color: var(--ink-2); max-width: 68ch; }
+
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--ring);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .picker-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); margin: 0 0 6px; font-weight: 600; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .seg button {
+    font: inherit; font-size: 14px; padding: 6px 0; min-width: 44px; flex: 0 0 auto;
+    border: 1px solid var(--hairline); border-radius: 8px;
+    background: transparent; color: var(--ink-2); cursor: pointer;
+  }
+  .seg button:hover { background: var(--wash-tone); }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .seg.quals button { min-width: 64px; padding: 6px 10px; }
+
+  .chordline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+  .chordname { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+  .chordnotes { color: var(--ink-2); font-size: 14px; }
+  .playbtn {
+    font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--hairline); background: transparent; color: var(--ink-1); cursor: pointer;
+  }
+  .playbtn:hover { background: var(--wash-tone); }
+
+  /* keyboard */
+  .kbdwrap { overflow-x: auto; padding: 4px 0 2px; }
+  svg.kbd { display: block; margin: 0 auto; }
+  .wkey { fill: var(--surface-1); stroke: var(--hairline); }
+  .bkey { fill: var(--ink-2); stroke: var(--ink-2); }
+  @media (prefers-color-scheme: dark) { .bkey { fill: #060606; stroke: #060606; } }
+  .wkey.chord { fill: var(--wash-tone); }
+  .bkey.chord { fill: var(--accent); opacity: 0.75; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 13px; color: var(--ink-2); justify-content: center; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: baseline; }
+  .kbd-caption { text-align: center; color: var(--ink-3); font-size: 13px; margin-top: 6px; min-height: 1.4em; }
+
+  /* controls */
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .controls select, .controls input[type=search] {
+    font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--hairline); background: var(--surface-1); color: var(--ink-1);
+  }
+  .controls input[type=search] { flex: 1 1 160px; min-width: 140px; }
+  .controls label.chk { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 14px; cursor: pointer; }
+  .sorttoggle { display: inline-flex; border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+  .sorttoggle button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .sorttoggle button.on { background: var(--accent); color: #fff; font-weight: 600; }
+  .count { color: var(--ink-3); font-size: 13px; margin-left: auto; }
+
+  /* rows */
+  .row {
+    background: var(--surface-1); border: 1px solid var(--ring); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+  }
+  .row:hover { border-color: var(--accent); }
+  .row.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .row-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .row-name { font-weight: 700; font-size: 16px; }
+  .row-fam { color: var(--ink-3); font-size: 12px; }
+  .row-play { margin-left: auto; }
+  .row-aka { color: var(--ink-2); font-size: 13px; margin: 2px 0 8px; }
+  .meterline { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .meter { flex: 1; height: 6px; border-radius: 3px; background: var(--hairline); overflow: hidden; max-width: 340px; }
+  .meter > div { height: 100%; border-radius: 3px; background: var(--accent); }
+  .meterpct { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stats { font-size: 13px; color: var(--ink-2); }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .pill {
+    display: inline-flex; flex-direction: column; align-items: center; min-width: 40px;
+    padding: 4px 6px 3px; border-radius: 8px; border: 1px solid var(--hairline);
+    line-height: 1.15;
+  }
+  .pill b { font-size: 14px; font-weight: 600; color: var(--ink-1); }
+  .pill span { font-size: 11px; color: var(--ink-3); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; margin-bottom: 3px; }
+
+  details.explain { margin: 4px 0 18px; color: var(--ink-2); font-size: 14px; }
+  details.explain summary { cursor: pointer; color: var(--ink-1); font-weight: 600; }
+  details.explain .body { margin-top: 8px; max-width: 78ch; }
+  details.explain td, details.explain th { padding: 2px 12px 2px 0; text-align: left; font-weight: normal; }
+  details.explain th { color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  footer { margin-top: 28px; color: var(--ink-3); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Superimposition</h1>
+    <p class="sub">Pick a chord. Every scale in the dataset — at all twelve roots, deduplicated by pitch content —
+    is ranked from most <em>inside</em> (chord tones and consonant tensions) to most <em>outside</em> (clashes),
+    so you can choose exactly how far out you want your lines to sit.</p>
+  </header>
+
+  <div class="panel">
+    <p class="picker-label">Root</p>
+    <div class="seg" id="roots"></div>
+    <p class="picker-label">Quality</p>
+    <div class="seg quals" id="quals"></div>
+    <div class="chordline">
+      <span class="chordname" id="chordname"></span>
+      <span class="chordnotes" id="chordnotes"></span>
+      <button class="playbtn" id="playchord">▶ Hear chord</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="kbdwrap"><svg class="kbd" id="kbd" width="632" height="132" viewBox="0 0 632 132" role="img" aria-label="Piano keyboard showing chord tones and selected scale"></svg></div>
+    <div class="kbd-caption" id="kbdcaption"></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--cat-tone)"></span>chord tone</span>
+      <span><span class="sw" style="background:var(--cat-tension)"></span>tension</span>
+      <span><span class="sw" style="background:var(--cat-color)"></span>color tension</span>
+      <span><span class="sw" style="background:var(--cat-avoid)"></span>avoid note</span>
+      <span><span class="sw" style="background:var(--cat-out)"></span>clash</span>
+    </div>
+  </div>
+
+  <details class="explain">
+    <summary>How the ranking works</summary>
+    <div class="body">
+      <p>For the selected chord, every note of a candidate scale is classified relative to the chord:
+      <b>chord tone</b> (defines the harmony), <b>tension</b> (consonant extension — 9, 13, etc.),
+      <b>color tension</b> (usable but characterful — ♯11 on a major chord, altered notes on a dominant),
+      <b>avoid note</b> (dissonant against a chord tone, usable in passing), or <b>clash</b> (contradicts
+      the chord quality).</p>
+      <p>The <b>inside score</b> blends two things: the average consonance of the scale's notes
+      (tone&nbsp;1.0, tension&nbsp;0.75, color&nbsp;0.55, avoid&nbsp;0.3, clash&nbsp;0) and how many of the
+      chord's defining tones the scale actually contains. 100% ≈ pure chord-sound; low percentages are
+      deliberately "outside" superimpositions that create tension you must resolve.</p>
+      <p>Scales that contain identical notes are merged into one row — over Cmaj7, C&nbsp;Ionian,
+      D&nbsp;Dorian and G&nbsp;Mixolydian are the same eleven fingers' worth of pitches, so they appear
+      once with their equivalent names listed.</p>
+    </div>
+  </details>
+
+  <div class="controls">
+    <div class="sorttoggle" role="group" aria-label="Sort order">
+      <button id="sortin" class="on">Inside first</button>
+      <button id="sortout">Outside first</button>
+    </div>
+    <select id="famfilter" aria-label="Scale family filter"></select>
+    <label class="chk"><input type="checkbox" id="fullcov"> contains all chord tones</label>
+    <input type="search" id="search" placeholder="Search scales… (e.g. lydian, blues)">
+    <span class="count" id="count"></span>
+  </div>
+
+  <div id="rows"></div>
+
+  <footer>All audio is synthesized locally (Web Audio). Categories follow common jazz practice; treat scores
+  as a map, not a rulebook — the best "wrong" note is the one you resolve well.</footer>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- pitch data ---------- */
+const NOTE_NAMES = ['C','D♭','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+const DEG_DEFAULT = {0:'R',1:'♭9',2:'9',3:'♯9',4:'3',5:'11',6:'♯11',7:'5',8:'♭13',9:'13',10:'♭7',11:'7'};
+
+/* Chord qualities: intervals from root by category. Anything unlisted is a clash. */
+const QUALITIES = [
+  { id:'maj7',  sym:'maj7',    tones:[0,4,7,11], tension:[2,9],     color:[6],       avoid:[5],  labels:{} },
+  { id:'maj6',  sym:'6',       tones:[0,4,7,9],  tension:[2,11],    color:[6],       avoid:[5],  labels:{9:'6'} },
+  { id:'dom7',  sym:'7',       tones:[0,4,7,10], tension:[2,9],     color:[1,3,6,8], avoid:[5],  labels:{} },
+  { id:'sus7',  sym:'7sus4',   tones:[0,5,7,10], tension:[2,9],     color:[1,8],     avoid:[4],  labels:{5:'4',4:'3'} },
+  { id:'alt7',  sym:'7alt',    tones:[0,4,10],   tension:[1,3,6,8], color:[],        avoid:[7],  labels:{6:'♭5',8:'♯5'} },
+  { id:'min7',  sym:'m7',      tones:[0,3,7,10], tension:[2,5],     color:[9],       avoid:[1,8],labels:{3:'♭3'} },
+  { id:'min6',  sym:'m6',      tones:[0,3,7,9],  tension:[2,5],     color:[11],      avoid:[8,10],labels:{3:'♭3',9:'6'} },
+  { id:'mmaj7', sym:'m(maj7)', tones:[0,3,7,11], tension:[2,5,9],   color:[],        avoid:[8],  labels:{3:'♭3'} },
+  { id:'m7b5',  sym:'m7♭5',    tones:[0,3,6,10], tension:[5,8],     color:[1,2],     avoid:[],   labels:{3:'♭3',6:'♭5'} },
+  { id:'dim7',  sym:'°7',      tones:[0,3,6,9],  tension:[2,5,8,11],color:[],        avoid:[],   labels:{3:'♭3',6:'♭5',9:'♭♭7'} },
+];
+const WEIGHTS = { tone:1.0, tension:0.75, color:0.55, avoid:0.3, out:0 };
+const CAT_ORDER = { tone:0, tension:1, color:2, avoid:3, out:4 };
+
+/* ---------- scale dataset ---------- */
+function rotateMode(parent, k) {
+  return parent.map(x => (x - parent[k] + 12) % 12).sort((a,b)=>a-b);
+}
+const SCALES = [];
+function addModes(family, parent, modeNames) {
+  modeNames.forEach((name, k) => {
+    if (name) SCALES.push({ name, family, iv: rotateMode(parent, k) });
+  });
+}
+addModes('Major modes', [0,2,4,5,7,9,11],
+  ['Major (Ionian)','Dorian','Phrygian','Lydian','Mixolydian','Aeolian','Locrian']);
+addModes('Melodic minor', [0,2,3,5,7,9,11],
+  ['Melodic Minor','Dorian ♭2','Lydian Augmented','Lydian Dominant','Mixolydian ♭6','Locrian ♮2','Altered']);
+addModes('Harmonic minor', [0,2,3,5,7,8,11],
+  ['Harmonic Minor',null,null,null,'Phrygian Dominant',null,null]);
+addModes('Harmonic major', [0,2,4,5,7,8,11],
+  ['Harmonic Major',null,null,null,null,null,null]);
+[ {name:'Whole Tone', iv:[0,2,4,6,8,10]},
+  {name:'Diminished (H–W)', iv:[0,1,3,4,6,7,9,10]},
+  {name:'Diminished (W–H)', iv:[0,2,3,5,6,8,9,11]},
+  {name:'Augmented', iv:[0,3,4,7,8,11]},
+].forEach(s => SCALES.push({ ...s, family:'Symmetric' }));
+[ {name:'Major Pentatonic', iv:[0,2,4,7,9]},
+  {name:'Minor Pentatonic', iv:[0,3,5,7,10]},
+  {name:'Blues', iv:[0,3,5,6,7,10]},
+].forEach(s => SCALES.push({ ...s, family:'Pentatonic & blues' }));
+[ {name:'Bebop Dominant', iv:[0,2,4,5,7,9,10,11]},
+  {name:'Bebop Major', iv:[0,2,4,5,7,8,9,11]},
+].forEach(s => SCALES.push({ ...s, family:'Bebop' }));
+
+const FAMILY_ORDER = ['Major modes','Melodic minor','Harmonic minor','Harmonic major','Symmetric','Pentatonic & blues','Bebop'];
+
+/* ---------- state ---------- */
+const state = {
+  root: 0,
+  quality: QUALITIES[0],
+  sortOutside: false,
+  family: 'all',
+  search: '',
+  fullCov: false,
+  selectedKey: null,
+  rows: [],
+};
+
+/* ---------- analysis ---------- */
+function categoryOf(pc) {
+  const rel = (pc - state.root + 12) % 12;
+  const q = state.quality;
+  if (q.tones.includes(rel)) return 'tone';
+  if (q.tension.includes(rel)) return 'tension';
+  if (q.color.includes(rel)) return 'color';
+  if (q.avoid.includes(rel)) return 'avoid';
+  return 'out';
+}
+function degreeLabel(pc) {
+  const rel = (pc - state.root + 12) % 12;
+  return state.quality.labels[rel] || DEG_DEFAULT[rel];
+}
+function chordPcs() {
+  return state.quality.tones.map(t => (state.root + t) % 12);
+}
+
+function computeRows() {
+  const cpcs = chordPcs();
+  const groups = new Map();
+  for (const scale of SCALES) {
+    for (let r = 0; r < 12; r++) {
+      const pcs = scale.iv.map(i => (r + i) % 12);
+      const key = [...pcs].sort((a,b)=>a-b).join(',');
+      if (!groups.has(key)) groups.set(key, { key, aliases: [] });
+      groups.get(key).aliases.push({ r, scale });
+    }
+  }
+  const rows = [];
+  for (const g of groups.values()) {
+    // rank alias names: root == chord root, then root is a chord tone, then family order
+    g.aliases.sort((a,b) => {
+      const pa = a.r === state.root ? 0 : cpcs.includes(a.r) ? 1 : 2;
+      const pb = b.r === state.root ? 0 : cpcs.includes(b.r) ? 1 : 2;
+      if (pa !== pb) return pa - pb;
+      const fa = FAMILY_ORDER.indexOf(a.scale.family), fb = FAMILY_ORDER.indexOf(b.scale.family);
+      if (fa !== fb) return fa - fb;
+      return ((a.r - state.root + 12) % 12) - ((b.r - state.root + 12) % 12);
+    });
+    const primary = g.aliases[0];
+    const pcs = primary.scale.iv.map(i => (primary.r + i) % 12);
+    const cats = pcs.map(categoryOf);
+    const counts = { tone:0, tension:0, color:0, avoid:0, out:0 };
+    let wsum = 0;
+    cats.forEach(c => { counts[c]++; wsum += WEIGHTS[c]; });
+    const coverage = cpcs.filter(pc => pcs.includes(pc)).length / cpcs.length;
+    const fit = 0.6 * (wsum / pcs.length) + 0.4 * coverage;
+    rows.push({
+      key: g.key, primary, pcs, cats, counts, coverage, fit,
+      inside: Math.round(fit * 100),
+      aliases: g.aliases,
+    });
+  }
+  state.rows = rows;
+}
+
+/* ---------- rendering ---------- */
+const $ = id => document.getElementById(id);
+const aliasName = a => `${NOTE_NAMES[a.r]} ${a.scale.name}`;
+
+function renderPickers() {
+  $('roots').innerHTML = NOTE_NAMES.map((n,i) =>
+    `<button data-r="${i}" class="${i===state.root?'on':''}" aria-pressed="${i===state.root}">${n}</button>`).join('');
+  $('quals').innerHTML = QUALITIES.map(q =>
+    `<button data-q="${q.id}" class="${q.id===state.quality.id?'on':''}" aria-pressed="${q.id===state.quality.id}">${q.sym}</button>`).join('');
+  $('chordname').textContent = NOTE_NAMES[state.root] + state.quality.sym;
+  $('chordnotes').textContent = state.quality.tones
+    .map(t => `${NOTE_NAMES[(state.root+t)%12]} (${state.quality.labels[t] || DEG_DEFAULT[t]})`).join(' · ');
+}
+
+function renderFamilyFilter() {
+  $('famfilter').innerHTML = `<option value="all">All families</option>` +
+    FAMILY_ORDER.map(f => `<option value="${f}" ${state.family===f?'selected':''}>${f}</option>`).join('');
+}
+
+function visibleRows() {
+  const q = state.search.trim().toLowerCase();
+  let rows = state.rows.filter(row => {
+    if (state.fullCov && row.coverage < 1) return false;
+    if (state.family !== 'all' && !row.aliases.some(a => a.scale.family === state.family)) return false;
+    if (q && !row.aliases.some(a => aliasName(a).toLowerCase().includes(q))) return false;
+    return true;
+  });
+  rows.sort((a,b) => state.sortOutside ? a.fit - b.fit : b.fit - a.fit);
+  return rows;
+}
+
+function renderRows() {
+  const rows = visibleRows();
+  if (!rows.some(r => r.key === state.selectedKey)) state.selectedKey = rows.length ? rows[0].key : null;
+  $('count').textContent = `${rows.length} scale${rows.length===1?'':'s'}`;
+  $('rows').innerHTML = rows.map(row => {
+    const seen = new Set([aliasName(row.primary)]);
+    const others = [];
+    for (const a of row.aliases.slice(1)) {
+      const n = aliasName(a);
+      if (!seen.has(n)) { seen.add(n); others.push(n); }
+    }
+    const aka = others.length
+      ? `same notes: ${others.slice(0,4).join(', ')}${others.length>4 ? ` +${others.length-4} more` : ''}`
+      : '';
+    const pills = row.pcs.map((pc,i) => `
+      <span class="pill" title="${row.cats[i]==='out'?'clash':row.cats[i]==='tone'?'chord tone':row.cats[i]+' note'}">
+        <span class="dot" style="background:var(--cat-${row.cats[i]})"></span>
+        <b>${NOTE_NAMES[pc]}</b><span>${degreeLabel(pc)}</span>
+      </span>`).join('');
+    const c = row.counts;
+    const stats = [
+      `${Math.round(row.coverage*chordPcs().length)}/${chordPcs().length} chord tones`,
+      `${c.tension + c.color} tension${c.tension+c.color===1?'':'s'}`,
+      c.avoid ? `${c.avoid} avoid` : null,
+      c.out ? `${c.out} clash${c.out===1?'':'es'}` : 'no clashes',
+    ].filter(Boolean).join(' · ');
+    return `
+    <div class="row ${row.key===state.selectedKey?'sel':''}" data-key="${row.key}" tabindex="0" role="button"
+         aria-pressed="${row.key===state.selectedKey}">
+      <div class="row-top">
+        <span class="row-name">${aliasName(row.primary)}</span>
+        <span class="row-fam">${row.primary.scale.family}</span>
+        <button class="playbtn row-play" data-play="${row.key}">▶ Play over chord</button>
+      </div>
+      ${aka ? `<div class="row-aka">${aka}</div>` : ''}
+      <div class="meterline">
+        <div class="meter" aria-hidden="true"><div style="width:${row.inside}%"></div></div>
+        <span class="meterpct">${row.inside}% inside · ${100-row.inside}% outside</span>
+      </div>
+      <div class="stats">${stats}</div>
+      <div class="pills">${pills}</div>
+    </div>`;
+  }).join('');
+  renderKeyboard();
+}
+
+/* ---------- keyboard ---------- */
+const WHITE_PCS = [0,2,4,5,7,9,11];
+const BLACK_PCS = { 1:0, 3:1, 6:3, 8:4, 10:5 }; // pc -> white index to the left
+function renderKeyboard() {
+  const svg = $('kbd');
+  const cpcs = chordPcs();
+  const sel = state.rows.find(r => r.key === state.selectedKey);
+  const scaleMap = new Map();
+  if (sel) sel.pcs.forEach((pc,i) => scaleMap.set(pc, sel.cats[i]));
+  const WW = 45, WH = 128, BW = 26, BH = 80;
+  let parts = [];
+  // white keys, 2 octaves
+  for (let o = 0; o < 2; o++) for (let wi = 0; wi < 7; wi++) {
+    const pc = WHITE_PCS[wi];
+    const x = (o*7 + wi) * WW + 1;
+    parts.push(`<rect class="wkey ${cpcs.includes(pc)?'chord':''}" x="${x}" y="1" width="${WW-1}" height="${WH}" rx="3"/>`);
+    if (scaleMap.has(pc)) {
+      parts.push(`<circle cx="${x+(WW-1)/2}" cy="${WH-16}" r="8" fill="var(--cat-${scaleMap.get(pc)})" stroke="var(--surface-1)" stroke-width="2"/>`);
+    }
+  }
+  // black keys
+  for (let o = 0; o < 2; o++) for (const [pcS, wiL] of Object.entries(BLACK_PCS)) {
+    const pc = +pcS;
+    const x = (o*7 + wiL + 1) * WW - BW/2 + 1;
+    parts.push(`<rect class="bkey ${cpcs.includes(pc)?'chord':''}" x="${x}" y="1" width="${BW}" height="${BH}" rx="3"/>`);
+    if (scaleMap.has(pc)) {
+      parts.push(`<circle cx="${x+BW/2}" cy="${BH-14}" r="7" fill="var(--cat-${scaleMap.get(pc)})" stroke="var(--surface-1)" stroke-width="2"/>`);
+    }
+  }
+  svg.innerHTML = parts.join('');
+  $('kbdcaption').textContent = sel
+    ? `${aliasName(sel.primary)} over ${NOTE_NAMES[state.root]}${state.quality.sym} — shaded keys are chord tones, dots are the scale`
+    : 'Shaded keys are chord tones. Select a scale below to overlay it.';
+}
+
+/* ---------- audio ---------- */
+let actx = null;
+function ctx() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); return actx; }
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+function tone(midi, t0, dur, gainV, type) {
+  const ac = ctx();
+  const osc = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+  osc.type = type; osc.frequency.value = mtof(midi);
+  f.type = 'lowpass'; f.frequency.value = 2200;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(gainV, t0 + 0.02);
+  g.gain.setValueAtTime(gainV, t0 + dur - 0.08);
+  g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(f); f.connect(g); g.connect(ac.destination);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+}
+function playChordPad(t0, dur) {
+  const rootMidi = 36 + state.root;
+  tone(rootMidi, t0, dur, 0.10, 'triangle');
+  state.quality.tones.forEach(iv => tone(48 + state.root + iv, t0, dur, 0.06, 'sawtooth'));
+}
+function playRow(row) {
+  const ac = ctx();
+  if (ac.state === 'suspended') ac.resume();
+  const t0 = ac.currentTime + 0.05;
+  const r = row.primary.r;
+  const start = (r >= 8 ? 48 : 60) + r;
+  const notes = row.primary.scale.iv.map(i => start + i).concat(start + 12);
+  const step = 0.26;
+  playChordPad(t0, notes.length * step + 0.8);
+  notes.forEach((m, i) => tone(m, t0 + 0.25 + i * step, 0.24, 0.13, 'sine'));
+}
+
+/* ---------- events ---------- */
+function refresh(recompute) {
+  if (recompute) { computeRows(); renderPickers(); }
+  renderRows();
+}
+$('roots').addEventListener('click', e => {
+  const b = e.target.closest('button[data-r]'); if (!b) return;
+  state.root = +b.dataset.r; state.selectedKey = null; refresh(true);
+});
+$('quals').addEventListener('click', e => {
+  const b = e.target.closest('button[data-q]'); if (!b) return;
+  state.quality = QUALITIES.find(q => q.id === b.dataset.q); state.selectedKey = null; refresh(true);
+});
+$('sortin').addEventListener('click', () => { state.sortOutside = false; $('sortin').classList.add('on'); $('sortout').classList.remove('on'); renderRows(); });
+$('sortout').addEventListener('click', () => { state.sortOutside = true; $('sortout').classList.add('on'); $('sortin').classList.remove('on'); renderRows(); });
+$('famfilter').addEventListener('change', e => { state.family = e.target.value; renderRows(); });
+$('fullcov').addEventListener('change', e => { state.fullCov = e.target.checked; renderRows(); });
+$('search').addEventListener('input', e => { state.search = e.target.value; renderRows(); });
+$('playchord').addEventListener('click', () => {
+  const ac = ctx(); if (ac.state === 'suspended') ac.resume();
+  playChordPad(ac.currentTime + 0.05, 2.0);
+});
+$('rows').addEventListener('click', e => {
+  const p = e.target.closest('button[data-play]');
+  if (p) {
+    const row = state.rows.find(r => r.key === p.dataset.play);
+    if (row) { state.selectedKey = row.key; renderRows(); playRow(row); }
+    return;
+  }
+  const rowEl = e.target.closest('.row[data-key]'); if (!rowEl) return;
+  state.selectedKey = rowEl.dataset.key; renderRows();
+});
+$('rows').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const rowEl = e.target.closest('.row[data-key]'); if (!rowEl) return;
+  e.preventDefault(); state.selectedKey = rowEl.dataset.key; renderRows();
+});
+
+/* ---------- init ---------- */
+renderFamilyFilter();
+computeRows();
+renderPickers();
+renderRows();
+</script>
+</body>
+</html>
