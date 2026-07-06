@@ -87,6 +87,15 @@
 
   /* controls */
   .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  /* custom scale checker */
+  .checkline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ink-2); font-size: 14px; }
+  .checkline select {
+    font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--hairline); background: var(--surface-1); color: var(--ink-1);
+  }
+  .row.pinned { box-shadow: 0 0 0 1px var(--accent); border-color: var(--accent); }
+  .rankline { font-size: 13px; color: var(--accent); font-weight: 600; margin: 2px 0 6px; }
+
   .controls select, .controls input[type=search] {
     font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
     border: 1px solid var(--hairline); background: var(--surface-1); color: var(--ink-1);
@@ -184,6 +193,17 @@
     </div>
   </details>
 
+  <div class="panel">
+    <p class="picker-label">Check any scale</p>
+    <div class="checkline">
+      <select id="ckscale" aria-label="Scale to check"></select>
+      <span>from</span>
+      <select id="ckroot" aria-label="Scale root"></select>
+      <span id="ckover"></span>
+      <button class="playbtn" id="ckclear" hidden>✕ Clear</button>
+    </div>
+  </div>
+
   <div class="controls">
     <div class="sorttoggle" role="group" aria-label="Sort order">
       <button id="sortin" class="on">Inside first</button>
@@ -267,6 +287,7 @@ const state = {
   fullCov: false,
   selectedKey: null,
   rows: [],
+  pinned: null, // {scaleIdx, r} — a user-chosen scale+root to check explicitly
 };
 
 /* ---------- analysis ---------- */
@@ -329,6 +350,20 @@ function computeRows() {
 /* ---------- rendering ---------- */
 const $ = id => document.getElementById(id);
 const aliasName = a => `${NOTE_NAMES[a.r]} ${a.scale.name}`;
+/* accidental-tolerant matching: "eb lydian" finds "E♭ Lydian Dominant" */
+const norm = s => s.toLowerCase().replace(/♭/g, 'b').replace(/♯/g, '#');
+
+/* The pinned scale rendered from the user's chosen root, backed by the
+   matching deduplicated row (same pitch set, so same score). */
+function pinnedDisplay() {
+  if (!state.pinned) return null;
+  const scale = SCALES[state.pinned.scaleIdx];
+  const pcs = scale.iv.map(i => (state.pinned.r + i) % 12);
+  const key = [...pcs].sort((a,b)=>a-b).join(',');
+  const row = state.rows.find(r => r.key === key);
+  if (!row) return null;
+  return { ...row, primary: { r: state.pinned.r, scale }, pcs, cats: pcs.map(categoryOf) };
+}
 
 function renderPickers() {
   $('roots').innerHTML = NOTE_NAMES.map((n,i) =>
@@ -346,61 +381,113 @@ function renderFamilyFilter() {
 }
 
 function visibleRows() {
-  const q = state.search.trim().toLowerCase();
+  const q = norm(state.search.trim());
   let rows = state.rows.filter(row => {
     if (state.fullCov && row.coverage < 1) return false;
     if (state.family !== 'all' && !row.aliases.some(a => a.scale.family === state.family)) return false;
-    if (q && !row.aliases.some(a => aliasName(a).toLowerCase().includes(q))) return false;
+    if (q && !row.aliases.some(a => norm(aliasName(a)).includes(q))) return false;
     return true;
   });
   rows.sort((a,b) => state.sortOutside ? a.fit - b.fit : b.fit - a.fit);
   return rows;
 }
 
+function cardHTML(row, { pinned = false } = {}) {
+  const seen = new Set([aliasName(row.primary)]);
+  const others = [];
+  for (const a of row.aliases) {
+    const n = aliasName(a);
+    if (!seen.has(n)) { seen.add(n); others.push(n); }
+  }
+  const aka = others.length
+    ? `same notes: ${others.slice(0,4).join(', ')}${others.length>4 ? ` +${others.length-4} more` : ''}`
+    : '';
+  const pills = row.pcs.map((pc,i) => `
+    <span class="pill" title="${row.cats[i]==='out'?'clash':row.cats[i]==='tone'?'chord tone':row.cats[i]+' note'}">
+      <span class="dot" style="background:var(--cat-${row.cats[i]})"></span>
+      <b>${NOTE_NAMES[pc]}</b><span>${degreeLabel(pc)}</span>
+    </span>`).join('');
+  const c = row.counts;
+  const stats = [
+    `${Math.round(row.coverage*chordPcs().length)}/${chordPcs().length} chord tones`,
+    `${c.tension + c.color} tension${c.tension+c.color===1?'':'s'}`,
+    c.avoid ? `${c.avoid} avoid` : null,
+    c.out ? `${c.out} clash${c.out===1?'':'es'}` : 'no clashes',
+  ].filter(Boolean).join(' · ');
+  let rankline = '';
+  if (pinned) {
+    const byFit = [...state.rows].sort((a,b) => b.fit - a.fit);
+    const rank = byFit.findIndex(r => r.key === row.key) + 1;
+    rankline = `<div class="rankline">Your pick — ranked #${rank} of ${byFit.length} over ${NOTE_NAMES[state.root]}${state.quality.sym}</div>`;
+  }
+  return `
+  <div class="row ${row.key===state.selectedKey?'sel':''} ${pinned?'pinned':''}" data-key="${row.key}" tabindex="0" role="button"
+       aria-pressed="${row.key===state.selectedKey}">
+    <div class="row-top">
+      <span class="row-name">${aliasName(row.primary)}</span>
+      <span class="row-fam">${row.primary.scale.family}</span>
+      <button class="playbtn row-play" data-play="${pinned?'__pin__':row.key}">▶ Play over chord</button>
+    </div>
+    ${rankline}
+    ${aka ? `<div class="row-aka">${aka}</div>` : ''}
+    <div class="meterline">
+      <div class="meter" aria-hidden="true"><div style="width:${row.inside}%"></div></div>
+      <span class="meterpct">${row.inside}% inside · ${100-row.inside}% outside</span>
+    </div>
+    <div class="stats">${stats}</div>
+    <div class="pills">${pills}</div>
+  </div>`;
+}
+
 function renderRows() {
   const rows = visibleRows();
-  if (!rows.some(r => r.key === state.selectedKey)) state.selectedKey = rows.length ? rows[0].key : null;
+  const pin = pinnedDisplay();
+  if (!rows.some(r => r.key === state.selectedKey) && !(pin && pin.key === state.selectedKey)) {
+    state.selectedKey = rows.length ? rows[0].key : (pin ? pin.key : null);
+  }
   $('count').textContent = `${rows.length} scale${rows.length===1?'':'s'}`;
-  $('rows').innerHTML = rows.map(row => {
-    const seen = new Set([aliasName(row.primary)]);
-    const others = [];
-    for (const a of row.aliases.slice(1)) {
-      const n = aliasName(a);
-      if (!seen.has(n)) { seen.add(n); others.push(n); }
-    }
-    const aka = others.length
-      ? `same notes: ${others.slice(0,4).join(', ')}${others.length>4 ? ` +${others.length-4} more` : ''}`
-      : '';
-    const pills = row.pcs.map((pc,i) => `
-      <span class="pill" title="${row.cats[i]==='out'?'clash':row.cats[i]==='tone'?'chord tone':row.cats[i]+' note'}">
-        <span class="dot" style="background:var(--cat-${row.cats[i]})"></span>
-        <b>${NOTE_NAMES[pc]}</b><span>${degreeLabel(pc)}</span>
-      </span>`).join('');
-    const c = row.counts;
-    const stats = [
-      `${Math.round(row.coverage*chordPcs().length)}/${chordPcs().length} chord tones`,
-      `${c.tension + c.color} tension${c.tension+c.color===1?'':'s'}`,
-      c.avoid ? `${c.avoid} avoid` : null,
-      c.out ? `${c.out} clash${c.out===1?'':'es'}` : 'no clashes',
-    ].filter(Boolean).join(' · ');
-    return `
-    <div class="row ${row.key===state.selectedKey?'sel':''}" data-key="${row.key}" tabindex="0" role="button"
-         aria-pressed="${row.key===state.selectedKey}">
-      <div class="row-top">
-        <span class="row-name">${aliasName(row.primary)}</span>
-        <span class="row-fam">${row.primary.scale.family}</span>
-        <button class="playbtn row-play" data-play="${row.key}">▶ Play over chord</button>
-      </div>
-      ${aka ? `<div class="row-aka">${aka}</div>` : ''}
-      <div class="meterline">
-        <div class="meter" aria-hidden="true"><div style="width:${row.inside}%"></div></div>
-        <span class="meterpct">${row.inside}% inside · ${100-row.inside}% outside</span>
-      </div>
-      <div class="stats">${stats}</div>
-      <div class="pills">${pills}</div>
-    </div>`;
-  }).join('');
+  $('rows').innerHTML = (pin ? cardHTML(pin, { pinned: true }) : '')
+    + rows.map(row => cardHTML(row)).join('');
   renderKeyboard();
+}
+
+/* ---------- custom scale checker ---------- */
+const INTERVAL_UP = ['unison','♭2','2','♭3','3','4','♭5','5','♭6','6','♭7','7'];
+function renderChecker() {
+  const sel = $('ckscale');
+  if (!sel.options.length) {
+    let html = `<option value="">Choose a scale…</option>`;
+    for (const fam of FAMILY_ORDER) {
+      const opts = SCALES.map((s,i) => s.family === fam ? `<option value="${i}">${s.name}</option>` : '').join('');
+      html += `<optgroup label="${fam}">${opts}</optgroup>`;
+    }
+    sel.innerHTML = html;
+  }
+  sel.value = state.pinned ? String(state.pinned.scaleIdx) : sel.value;
+  const rootSel = $('ckroot');
+  rootSel.innerHTML = NOTE_NAMES.map((n,i) => {
+    const iv = (i - state.root + 12) % 12;
+    const label = iv === 0 ? `${n} (chord root)` : `${n} (${INTERVAL_UP[iv]} up)`;
+    return `<option value="${i}">${label}</option>`;
+  }).join('');
+  rootSel.value = String(state.pinned ? state.pinned.r : state.root);
+  $('ckover').textContent = `over ${NOTE_NAMES[state.root]}${state.quality.sym}`;
+  $('ckclear').hidden = !state.pinned;
+}
+function checkerChanged() {
+  const scaleIdx = $('ckscale').value;
+  if (scaleIdx === '') { state.pinned = null; }
+  else state.pinned = { scaleIdx: +scaleIdx, r: +$('ckroot').value };
+  if (state.pinned) {
+    const p = pinnedDisplayKey();
+    state.selectedKey = p;
+  }
+  $('ckclear').hidden = !state.pinned;
+  renderRows();
+}
+function pinnedDisplayKey() {
+  const scale = SCALES[state.pinned.scaleIdx];
+  return scale.iv.map(i => (state.pinned.r + i) % 12).sort((a,b)=>a-b).join(',');
 }
 
 /* ---------- keyboard ---------- */
@@ -409,7 +496,9 @@ const BLACK_PCS = { 1:0, 3:1, 6:3, 8:4, 10:5 }; // pc -> white index to the left
 function renderKeyboard() {
   const svg = $('kbd');
   const cpcs = chordPcs();
-  const sel = state.rows.find(r => r.key === state.selectedKey);
+  const pin = pinnedDisplay();
+  const sel = (pin && pin.key === state.selectedKey) ? pin
+    : state.rows.find(r => r.key === state.selectedKey);
   const scaleMap = new Map();
   if (sel) sel.pcs.forEach((pc,i) => scaleMap.set(pc, sel.cats[i]));
   const WW = 45, WH = 128, BW = 26, BH = 80;
@@ -519,7 +608,7 @@ function playRow(row) {
 
 /* ---------- events ---------- */
 function refresh(recompute) {
-  if (recompute) { computeRows(); renderPickers(); }
+  if (recompute) { computeRows(); renderPickers(); renderChecker(); }
   renderRows();
 }
 $('roots').addEventListener('click', e => {
@@ -539,7 +628,8 @@ $('playchord').addEventListener('click', () => setPad(!padOn()));
 $('rows').addEventListener('click', e => {
   const p = e.target.closest('button[data-play]');
   if (p) {
-    const row = state.rows.find(r => r.key === p.dataset.play);
+    const row = p.dataset.play === '__pin__' ? pinnedDisplay()
+      : state.rows.find(r => r.key === p.dataset.play);
     if (row) { state.selectedKey = row.key; renderRows(); playRow(row); }
     return;
   }
@@ -552,10 +642,17 @@ $('rows').addEventListener('keydown', e => {
   e.preventDefault(); state.selectedKey = rowEl.dataset.key; renderRows();
 });
 
+$('ckscale').addEventListener('change', checkerChanged);
+$('ckroot').addEventListener('change', checkerChanged);
+$('ckclear').addEventListener('click', () => {
+  state.pinned = null; $('ckscale').value = ''; renderChecker(); renderRows();
+});
+
 /* ---------- init ---------- */
 renderFamilyFilter();
 computeRows();
 renderPickers();
+renderChecker();
 renderRows();
 </script>
 </body>
