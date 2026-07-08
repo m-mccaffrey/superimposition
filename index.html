@@ -290,11 +290,7 @@ addModes('Harmonic major', [0,2,4,5,7,8,11],
   {name:'Minor Pentatonic', iv:[0,3,5,7,10]},
   {name:'Blues', iv:[0,3,5,6,7,10]},
 ].forEach(s => SCALES.push({ ...s, family:'Pentatonic & blues' }));
-[ {name:'Bebop Dominant', iv:[0,2,4,5,7,9,10,11]},
-  {name:'Bebop Major', iv:[0,2,4,5,7,8,9,11]},
-].forEach(s => SCALES.push({ ...s, family:'Bebop' }));
-
-const FAMILY_ORDER = ['Major modes','Melodic minor','Harmonic minor','Harmonic major','Symmetric','Pentatonic & blues','Bebop'];
+const FAMILY_ORDER = ['Major modes','Melodic minor','Harmonic minor','Harmonic major','Symmetric','Pentatonic & blues'];
 
 /* Extended mode names: identifies a scale's name from any starting note, even
    for modes not listed as rows (e.g. harmonic minor's 6th mode, Lydian ♯2).
