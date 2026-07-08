@@ -7,7 +7,7 @@ improvising with scales over chords to imply different harmonic ideas.
 
 Pick a chord root and quality, and every scale in the dataset — all modes of the
 major and melodic minor scales, harmonic minor/major, symmetric scales (whole tone,
-diminished, augmented), pentatonics, blues, and bebop scales, at all twelve roots —
+diminished, augmented), pentatonics, and blues, at all twelve roots —
 is ranked from most *inside* to most *outside* against that chord.
 
 ## How it works

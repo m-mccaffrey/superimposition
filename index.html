@@ -290,11 +290,26 @@ addModes('Harmonic major', [0,2,4,5,7,8,11],
   {name:'Minor Pentatonic', iv:[0,3,5,7,10]},
   {name:'Blues', iv:[0,3,5,6,7,10]},
 ].forEach(s => SCALES.push({ ...s, family:'Pentatonic & blues' }));
-[ {name:'Bebop Dominant', iv:[0,2,4,5,7,9,10,11]},
-  {name:'Bebop Major', iv:[0,2,4,5,7,8,9,11]},
-].forEach(s => SCALES.push({ ...s, family:'Bebop' }));
+const FAMILY_ORDER = ['Major modes','Melodic minor','Harmonic minor','Harmonic major','Symmetric','Pentatonic & blues'];
 
-const FAMILY_ORDER = ['Major modes','Melodic minor','Harmonic minor','Harmonic major','Symmetric','Pentatonic & blues','Bebop'];
+/* Extended mode names: identifies a scale's name from any starting note, even
+   for modes not listed as rows (e.g. harmonic minor's 6th mode, Lydian ♯2).
+   Used for the "from the chord root" line on cards. */
+const EXT_NAMES = new Map(); // interval-set key -> name
+for (const s of SCALES) if (!EXT_NAMES.has(s.iv.join(','))) EXT_NAMES.set(s.iv.join(','), s.name);
+function addExtModes(parent, modeNames) {
+  modeNames.forEach((name, k) => {
+    if (!name) return;
+    const key = rotateMode(parent, k).join(',');
+    if (!EXT_NAMES.has(key)) EXT_NAMES.set(key, name);
+  });
+}
+addExtModes([0,2,3,5,7,8,11], // harmonic minor
+  [null,'Locrian ♮6','Ionian ♯5','Dorian ♯4',null,'Lydian ♯2','Ultralocrian']);
+addExtModes([0,2,4,5,7,8,11], // harmonic major
+  [null,'Dorian ♭5','Phrygian ♭4','Lydian ♭3','Mixolydian ♭2','Lydian Augmented ♯2','Locrian ♭♭7']);
+addExtModes([0,2,4,7,9], // major pentatonic
+  [null,'Suspended Pentatonic','Blues Minor Pentatonic','Ritusen',null]);
 
 /* ---------- state ---------- */
 const state = {
@@ -532,6 +547,16 @@ function cardHTML(row, { pinned = false } = {}) {
   const aka = others.length
     ? `same notes: ${others.slice(0,4).join(', ')}${others.length>4 ? ` +${others.length-4} more` : ''}`
     : '';
+  /* If the scale contains the chord root but no listed name starts on it,
+     name it from the chord root (e.g. E Harmonic Minor over Cmaj7 → C Lydian ♯2). */
+  let fromRoot = '';
+  if (row.pcs.includes(state.root) && !row.aliases.some(a => a.r === state.root)) {
+    const rels = row.pcs.map(pc => (pc - state.root + 12) % 12).sort((a,b)=>a-b);
+    const name = EXT_NAMES.get(rels.join(','));
+    fromRoot = `from ${NOTE_NAMES[state.root]} (chord root): ` + (name
+      ? `${NOTE_NAMES[state.root]} ${name}`
+      : `${rels.map(iv => NOTE_NAMES[(state.root+iv)%12]).join('–')} (unnamed mode of ${row.primary.scale.name})`);
+  }
   const pills = row.pcs.map((pc,i) => `
     <span class="pill" title="${row.cats[i]==='out'?'clash':row.cats[i]==='tone'?'chord tone':row.cats[i]+' note'}">
       <span class="dot" style="background:var(--cat-${row.cats[i]})"></span>
@@ -563,6 +588,7 @@ function cardHTML(row, { pinned = false } = {}) {
     </div>
     ${rankline}
     ${aka ? `<div class="row-aka">${aka}</div>` : ''}
+    ${fromRoot ? `<div class="row-aka">${fromRoot}</div>` : ''}
     <div class="meterline">
       <div class="meter" aria-hidden="true"><div style="width:${row.inside}%"></div></div>
       <span class="meterpct">${row.inside}% inside · ${100-row.inside}% outside</span>
