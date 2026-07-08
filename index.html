@@ -117,7 +117,7 @@
   .row-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .row-name { font-weight: 700; font-size: 16px; }
   .row-fam { color: var(--ink-3); font-size: 12px; }
-  .row-play { margin-left: auto; }
+  .row-play { margin-left: auto; display: inline-flex; gap: 6px; }
   .row-aka { color: var(--ink-2); font-size: 13px; margin: 2px 0 8px; }
   .meterline { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .meter { flex: 1; height: 6px; border-radius: 3px; background: var(--hairline); overflow: hidden; max-width: 340px; }
@@ -133,6 +133,17 @@
   .pill b { font-size: 14px; font-weight: 600; color: var(--ink-1); }
   .pill span { font-size: 11px; color: var(--ink-3); }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; margin-bottom: 3px; }
+
+  /* pop quiz */
+  .quizline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ink-2); font-size: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+  .quizline input[type=number] {
+    font: inherit; font-size: 14px; width: 58px; padding: 5px 8px; border-radius: 8px;
+    border: 1px solid var(--hairline); background: var(--surface-1); color: var(--ink-1);
+  }
+  .quiz { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hairline); }
+  .quiz-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .quiz-hint { color: var(--ink-3); font-size: 13px; }
+  .quiz .pills { margin-top: 10px; }
 
   details.explain { margin: 4px 0 18px; color: var(--ink-2); font-size: 14px; }
   details.explain summary { cursor: pointer; color: var(--ink-1); font-weight: 600; }
@@ -160,6 +171,14 @@
       <span class="chordname" id="chordname"></span>
       <span class="chordnotes" id="chordnotes"></span>
       <button class="playbtn" id="playchord">▶ Hear chord</button>
+    </div>
+    <div class="quizline">
+      <span class="picker-label" style="margin:0">Pop quiz</span>
+      <span>melody length</span>
+      <input type="number" id="qmin" min="2" max="12" value="3" aria-label="Minimum notes per quiz melody">
+      <span>to</span>
+      <input type="number" id="qmax" min="2" max="12" value="5" aria-label="Maximum notes per quiz melody">
+      <span>notes — each scale card has a 🎧 button that plays a melody from that scale for you to play back by ear.</span>
     </div>
   </div>
 
@@ -288,6 +307,9 @@ const state = {
   selectedKey: null,
   rows: [],
   pinned: null, // {scaleIdx, r} — a user-chosen scale+root to check explicitly
+  quizMin: 3,
+  quizMax: 5,
+  quiz: null, // {key, onPin, melody, revealed} — active ear-training quiz
 };
 
 /* ---------- analysis ---------- */
@@ -345,6 +367,114 @@ function computeRows() {
     });
   }
   state.rows = rows;
+}
+
+/* ---------- ear training: melody generation ---------- */
+function wpick(items, wf) {
+  let tot = 0;
+  const ws = items.map(x => { const w = Math.max(wf(x), 0); tot += w; return w; });
+  let r = Math.random() * tot;
+  for (let i = 0; i < items.length; i++) { r -= ws[i]; if (r <= 0) return items[i]; }
+  return items[items.length - 1];
+}
+const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+
+/* Generate a melodic cell from a row's scale, informed by note categories:
+   chord tones and tensions are favored as landing/target notes, color notes
+   are sprinkled, avoid notes appear mostly in passing. Figures include scale
+   steps, passing runs, neighbor tones (diatonic and chromatic), chromatic
+   passing tones, chromatic approaches into chord tones, and enclosures.
+   Every figure ends on a scale note, and the melody resolves to a chord tone
+   or tension. Returns an array of MIDI note numbers. */
+function genMelody(row) {
+  const n = randInt(state.quizMin, state.quizMax);
+  const LO = 55, HI = 82;
+  const ladder = [];
+  for (let m = LO; m <= HI; m++) if (row.pcs.includes(m % 12)) ladder.push(m);
+  const catOf = m => row.cats[row.pcs.indexOf(m % 12)];
+  const MELW = { tone: 4, tension: 2.6, color: 1.6, avoid: 0.5, out: 0 };
+  const strong = ladder.filter(m => catOf(m) === 'tone' || catOf(m) === 'tension');
+  const tones = ladder.filter(m => catOf(m) === 'tone');
+  const targets = tones.length ? tones : strong.length ? strong : ladder;
+
+  const idx = m => ladder.indexOf(m);
+  let cur = wpick(ladder.filter(m => m >= 58 && m <= 77), m => MELW[catOf(m)]);
+  const notes = [cur];
+  let dir = Math.random() < 0.55 ? 1 : -1;
+  const stepTo = d => ladder[Math.min(ladder.length - 1, Math.max(0, idx(cur) + d))];
+  const nearTargets = () => targets.filter(m => m !== cur && Math.abs(m - cur) >= 3 && Math.abs(m - cur) <= 9);
+
+  while (notes.length < n) {
+    const remaining = n - notes.length;
+    if (Math.random() < 0.3) dir = -dir;
+    if (cur <= LO + 3) dir = 1;
+    if (cur >= HI - 3) dir = -1;
+
+    if (remaining === 1) {
+      // resolve on the nearest strong note, preferring chord tones
+      const pool = strong.filter(m => m !== cur && Math.abs(m - cur) <= 7);
+      const res = pool.length
+        ? wpick(pool, m => (catOf(m) === 'tone' ? 3 : 1) / (1 + Math.abs(m - cur)))
+        : stepTo(dir);
+      notes.push(res); cur = res;
+      continue;
+    }
+
+    const next = stepTo(dir);
+    const moves = [];
+    // plain scale step, weighted down when it lands on an avoid note mid-phrase
+    moves.push({ w: 3.5 * (catOf(next) === 'avoid' ? 0.5 : 1), seq: () => [next] });
+    // leap to a nearby chord tone / tension target
+    if (nearTargets().length) moves.push({ w: 1.5, seq: () => [wpick(nearTargets(), m => 1 / (1 + Math.abs(m - cur)))] });
+    if (remaining >= 2) {
+      // passing run: two scale steps in the same direction
+      moves.push({ w: 2.0, seq: () => {
+        const a = stepTo(dir);
+        const b = ladder[Math.min(ladder.length - 1, Math.max(0, idx(cur) + 2 * dir))];
+        return a === b ? [a] : [a, b];
+      }});
+      // diatonic neighbor tone (step away and back)
+      if (next !== cur) moves.push({ w: 1.4, seq: () => [next, cur] });
+      // chromatic neighbor tone
+      moves.push({ w: 0.9, seq: () => [cur + dir, cur] });
+      // chromatic passing tone filling a whole step
+      if (Math.abs(next - cur) === 2) moves.push({ w: 1.6, seq: () => [cur + dir, next] });
+      // chromatic approach from a half step below a chord tone
+      if (nearTargets().length) moves.push({ w: 1.5, seq: () => {
+        const t = wpick(nearTargets(), m => 1 / (1 + Math.abs(m - cur)));
+        return [t - 1, t];
+      }});
+    }
+    if (remaining >= 3 && nearTargets().length) {
+      // enclosure: scale note above, chromatic below, then the target
+      moves.push({ w: 1.2, seq: () => {
+        const t = wpick(nearTargets(), m => 1 / (1 + Math.abs(m - cur)));
+        const above = idx(t) < ladder.length - 1 ? ladder[idx(t) + 1] : t + 2;
+        return [above, t - 1, t];
+      }});
+    }
+    const seq = wpick(moves, mv => mv.w).seq();
+    for (const m of seq) { if (notes.length < n) notes.push(m); }
+    cur = notes[notes.length - 1];
+    if (idx(cur) === -1) { // safety: never leave a chromatic note as figure end
+      cur = ladder.reduce((a, b) => Math.abs(b - notes[notes.length - 1]) < Math.abs(a - notes[notes.length - 1]) ? b : a);
+      notes[notes.length - 1] = cur;
+    }
+  }
+  return notes;
+}
+
+function playMelody(melody) {
+  const ac = ctx();
+  if (ac.state === 'suspended') ac.resume();
+  const t0 = ac.currentTime + 0.1;
+  const step = 0.32;
+  melody.forEach((m, i) => tone(m, t0 + i * step, i === melody.length - 1 ? 0.55 : 0.3, 0.14, 'sine'));
+}
+
+function quizRow() {
+  if (!state.quiz) return null;
+  return state.quiz.onPin ? pinnedDisplay() : state.rows.find(r => r.key === state.quiz.key);
 }
 
 /* ---------- rendering ---------- */
@@ -426,7 +556,10 @@ function cardHTML(row, { pinned = false } = {}) {
     <div class="row-top">
       <span class="row-name">${aliasName(row.primary)}</span>
       <span class="row-fam">${row.primary.scale.family}</span>
-      <button class="playbtn row-play" data-play="${pinned?'__pin__':row.key}">▶ Play over chord</button>
+      <span class="row-play">
+        <button class="playbtn" data-play="${pinned?'__pin__':row.key}">▶ Play over chord</button>
+        <button class="playbtn" data-popquiz="${pinned?'__pin__':row.key}">🎧 Pop quiz</button>
+      </span>
     </div>
     ${rankline}
     ${aka ? `<div class="row-aka">${aka}</div>` : ''}
@@ -436,6 +569,29 @@ function cardHTML(row, { pinned = false } = {}) {
     </div>
     <div class="stats">${stats}</div>
     <div class="pills">${pills}</div>
+    ${state.quiz && state.quiz.key === row.key && state.quiz.onPin === pinned ? quizHTML() : ''}
+  </div>`;
+}
+
+function quizHTML() {
+  const q = state.quiz;
+  const answer = q.revealed ? `<div class="pills">` + q.melody.map(m => {
+    const pc = m % 12, c = categoryOf(pc);
+    return `<span class="pill" title="${c==='out'?'chromatic / clash':c==='tone'?'chord tone':c+' note'}">
+      <span class="dot" style="background:var(--cat-${c})"></span>
+      <b>${NOTE_NAMES[pc]}${Math.floor(m/12)-1}</b><span>${degreeLabel(pc)}</span>
+    </span>`;
+  }).join('') + `</div>` : '';
+  return `
+  <div class="quiz">
+    <div class="quiz-controls">
+      <button class="playbtn" data-quiz="replay">▶ Replay</button>
+      <button class="playbtn" data-quiz="new">↻ New melody</button>
+      <button class="playbtn" data-quiz="reveal">${q.revealed?'Hide answer':'Reveal answer'}</button>
+      <button class="playbtn" data-quiz="close">✕ Close</button>
+      <span class="quiz-hint">${q.melody.length} notes — play it back by ear, then reveal.</span>
+    </div>
+    ${answer}
   </div>`;
 }
 
@@ -608,7 +764,7 @@ function playRow(row) {
 
 /* ---------- events ---------- */
 function refresh(recompute) {
-  if (recompute) { computeRows(); renderPickers(); renderChecker(); }
+  if (recompute) { computeRows(); renderPickers(); renderChecker(); state.quiz = null; }
   renderRows();
 }
 $('roots').addEventListener('click', e => {
@@ -626,6 +782,30 @@ $('fullcov').addEventListener('change', e => { state.fullCov = e.target.checked;
 $('search').addEventListener('input', e => { state.search = e.target.value; renderRows(); });
 $('playchord').addEventListener('click', () => setPad(!padOn()));
 $('rows').addEventListener('click', e => {
+  const qb = e.target.closest('button[data-quiz]');
+  if (qb && state.quiz) {
+    const q = state.quiz;
+    if (qb.dataset.quiz === 'replay') playMelody(q.melody);
+    else if (qb.dataset.quiz === 'new') {
+      const row = quizRow();
+      if (row) { q.melody = genMelody(row); q.revealed = false; renderRows(); playMelody(q.melody); }
+    }
+    else if (qb.dataset.quiz === 'reveal') { q.revealed = !q.revealed; renderRows(); }
+    else { state.quiz = null; renderRows(); }
+    return;
+  }
+  const pq = e.target.closest('button[data-popquiz]');
+  if (pq) {
+    const onPin = pq.dataset.popquiz === '__pin__';
+    const row = onPin ? pinnedDisplay() : state.rows.find(r => r.key === pq.dataset.popquiz);
+    if (row) {
+      state.quiz = { key: row.key, onPin, melody: genMelody(row), revealed: false };
+      state.selectedKey = row.key;
+      renderRows();
+      playMelody(state.quiz.melody);
+    }
+    return;
+  }
   const p = e.target.closest('button[data-play]');
   if (p) {
     const row = p.dataset.play === '__pin__' ? pinnedDisplay()
@@ -641,6 +821,16 @@ $('rows').addEventListener('keydown', e => {
   const rowEl = e.target.closest('.row[data-key]'); if (!rowEl) return;
   e.preventDefault(); state.selectedKey = rowEl.dataset.key; renderRows();
 });
+
+function quizRangeChanged() {
+  const clamp = v => Math.min(12, Math.max(2, Math.round(v) || 2));
+  let lo = clamp(+$('qmin').value), hi = clamp(+$('qmax').value);
+  if (lo > hi) { if (this === $('qmin')) hi = lo; else lo = hi; }
+  state.quizMin = lo; state.quizMax = hi;
+  $('qmin').value = lo; $('qmax').value = hi;
+}
+$('qmin').addEventListener('change', quizRangeChanged);
+$('qmax').addEventListener('change', quizRangeChanged);
 
 $('ckscale').addEventListener('change', checkerChanged);
 $('ckroot').addEventListener('change', checkerChanged);
